@@ -45,12 +45,16 @@ class AccountMove(models.Model):
         """
         Modifica la sección Adenda del XML generado.
         Reemplaza el contenido de Adenda con Complemento03.
+        Solo aplica para empresas con ID: 6, 15, 16, 18
         """
         self.ensure_one()
-        complemento03 = self._l10n_gt_edi_get_adenda_complemento03()
 
-        if not complemento03:
+        # Solo aplicar para estas empresas
+        EMPRESAS_ADENDA = [6, 15, 16, 18]
+        if self.company_id.id not in EMPRESAS_ADENDA:
             return xml_string
+
+        complemento03 = self._l10n_gt_edi_get_adenda_complemento03()
 
         # Parsear el XML
         root = etree.fromstring(xml_string.encode('utf-8'))
