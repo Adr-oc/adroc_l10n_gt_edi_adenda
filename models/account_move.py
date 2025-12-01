@@ -385,11 +385,10 @@ class AccountMove(models.Model):
         datos_generales.set('FechaHoraAnulacion', fecha_anulacion)
         datos_generales.set('MotivoAnulacion', (reason or 'Anulación solicitada')[:255])
 
-        xml_string = etree.tostring(
+        xml_string = '<?xml version="1.0" encoding="UTF-8"?>\n' + etree.tostring(
             root,
             pretty_print=True,
-            encoding='unicode',
-            xml_declaration=True
+            encoding='unicode'
         )
 
         logging.info("FEL Anulación: XML generado para factura %s, UUID: %s",
