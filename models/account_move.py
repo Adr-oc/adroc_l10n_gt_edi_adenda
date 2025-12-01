@@ -101,14 +101,14 @@ class AccountMove(models.Model):
 
         return result_xml
 
-    def _l10n_gt_edi_send_to_sat(self):
+    def _l10n_gt_edi_try_send(self):
         """
         Sobrescribe el método de envío para modificar la Adenda antes de enviar.
         """
         from odoo.addons.l10n_gt_edi.models.utils import _l10n_gt_edi_send_to_sat
         from odoo import _
 
-        logging.info("=== ADENDA: MÉTODO _l10n_gt_edi_send_to_sat SOBRESCRITO EJECUTÁNDOSE ===")
+        logging.info("=== ADENDA: MÉTODO _l10n_gt_edi_try_send SOBRESCRITO EJECUTÁNDOSE ===")
         logging.info("ADENDA: Factura: %s, ID: %s", self.name, self.id)
 
         self.ensure_one()
@@ -133,6 +133,7 @@ class AccountMove(models.Model):
         xml_data = etree.tostring(cleanup_xml_node(xml_data, remove_blank_nodes=False), pretty_print=True, encoding='unicode')
 
         # MODIFICACIÓN: Agregar Adenda personalizada
+        logging.info("ADENDA: Llamando a _l10n_gt_edi_modify_adenda")
         xml_data = self._l10n_gt_edi_modify_adenda(xml_data)
 
         sudo_root_company = self.company_id.sudo().parent_ids.filtered('partner_id.vat')[-1:] or self.company_id.sudo().root_id
@@ -157,3 +158,4 @@ class AccountMove(models.Model):
             if sudo_root_company.l10n_gt_edi_service_provider == 'demo':
                 self.message_post(body=_("This document has been successfully generated in DEMO mode. "
                                          "It is considered as accepted and it won't be sent to the SAT."))
+            self._cr.commit()
