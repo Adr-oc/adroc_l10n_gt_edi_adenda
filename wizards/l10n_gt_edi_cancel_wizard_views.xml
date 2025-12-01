@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="l10n_gt_edi_cancel_wizard_form" model="ir.ui.view">
+        <field name="name">l10n_gt_edi.cancel.wizard.form</field>
+        <field name="model">l10n_gt_edi.cancel.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Anular Factura FEL">
+                <sheet>
+                    <div class="alert alert-warning" role="alert">
+                        <strong>Advertencia:</strong> Esta acción anulará la factura en el sistema FEL de Guatemala (INFILE).
+                        Esta operación es irreversible.
+                    </div>
+                    <group>
+                        <group string="Datos de la Factura">
+                            <field name="move_id" invisible="1"/>
+                            <field name="invoice_name"/>
+                            <field name="partner_name"/>
+                            <field name="invoice_date"/>
+                            <field name="amount_total"/>
+                            <field name="currency_id" invisible="1"/>
+                        </group>
+                        <group string="Datos FEL">
+                            <field name="fel_uuid"/>
+                            <field name="fel_series"/>
+                            <field name="fel_number"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="reason" placeholder="Ingrese el motivo de anulación (máximo 255 caracteres)..." widget="text"/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_cancel_fel"
+                            string="Anular Factura"
+                            type="object"
+                            class="btn-danger"
+                            confirm="¿Está seguro que desea anular esta factura en INFILE? Esta acción es irreversible."/>
+                    <button string="Cancelar" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

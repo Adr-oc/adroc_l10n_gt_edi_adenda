@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <!-- Agregar botón "Anular FEL" en el formulario de factura -->
+    <record id="view_move_form_inherit_cancel_fel" model="ir.ui.view">
+        <field name="name">account.move.form.cancel.fel</field>
+        <field name="model">account.move</field>
+        <field name="inherit_id" ref="account.view_move_form"/>
+        <field name="priority">100</field>
+        <field name="arch" type="xml">
+            <!-- Agregar botón después del botón de enviar -->
+            <xpath expr="//button[@name='action_post']" position="after">
+                <button name="action_open_cancel_fel_wizard"
+                        string="Anular FEL"
+                        type="object"
+                        class="btn-secondary"
+                        invisible="l10n_gt_edi_state != 'invoice_sent' or state != 'posted'"
+                        groups="account.group_account_invoice"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>

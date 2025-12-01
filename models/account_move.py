@@ -1,8 +1,14 @@
 import logging
+import requests
+from datetime import datetime, timezone
+from json import JSONDecodeError
+from zoneinfo import ZoneInfo
+
 from lxml import etree
 
-from odoo import models
+from odoo import models, fields, api, _
 from odoo.tools import cleanup_xml_node
+from odoo.exceptions import UserError
 
 DTE_NS = "{http://www.sat.gob.gt/dte/fel/0.2.0}"
 DTE_NS_URL = "http://www.sat.gob.gt/dte/fel/0.2.0"
@@ -300,3 +306,202 @@ class AccountMove(models.Model):
                     move.write(vals)
                     logging.info("FEL Sync: Factura %s actualizada - Serie: %s, Número: %s",
                                  move.name, fel_doc.series, fel_doc.serial_number)
+
+    # =========================================================================
+    # ANULACIÓN FEL
+    # =========================================================================
+
+    def _l10n_gt_edi_can_cancel(self):
+        """Verifica si la factura puede ser anulada en INFILE"""
+        self.ensure_one()
+        if self.l10n_gt_edi_state != 'invoice_sent':
+            return False
+        # Verificar que tiene documento FEL con UUID
+        fel_doc = self.l10n_gt_edi_document_ids.filtered(
+            lambda d: d.state == 'invoice_sent' and d.uuid
+        )
+        return bool(fel_doc)
+
+    def action_open_cancel_fel_wizard(self):
+        """Abre el wizard para anular factura FEL"""
+        self.ensure_one()
+        if not self._l10n_gt_edi_can_cancel():
+            raise UserError(_("Esta factura no puede ser anulada en INFILE. "
+                            "Debe estar en estado FEL 'Sent' con UUID válido."))
+
+        return {
+            'name': _('Anular Factura FEL'),
+            'type': 'ir.actions.act_window',
+            'res_model': 'l10n_gt_edi.cancel.wizard',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': {'default_move_id': self.id},
+        }
+
+    def _l10n_gt_edi_build_cancellation_xml(self, reason):
+        """Construye el XML de anulación según XSD GT_AnulacionDocumento-0.1.0"""
+        self.ensure_one()
+
+        # Namespace para anulación (versión 0.1.0)
+        ANULACION_NS = "http://www.sat.gob.gt/dte/fel/0.1.0"
+
+        # Obtener documento FEL original
+        fel_doc = self.l10n_gt_edi_document_ids.filtered(
+            lambda d: d.state == 'invoice_sent' and d.uuid
+        ).sorted('id', reverse=True)[:1]
+
+        if not fel_doc:
+            raise UserError(_("No se encontró documento FEL válido para anular"))
+
+        # Timezone Guatemala
+        gt_tz = ZoneInfo('America/Guatemala')
+        now = datetime.now(gt_tz)
+
+        # Formatear fechas según XSD: aaaa-mm-ddThh:mm:ss.000-06:00
+        fecha_emision = self.invoice_date.strftime('%Y-%m-%dT00:00:00.000-06:00')
+        fecha_anulacion = now.strftime('%Y-%m-%dT%H:%M:%S.000-06:00')
+
+        # NIT emisor (sin guión)
+        nit_emisor = (self.company_id.partner_id.vat or '').replace('-', '').replace(' ', '')
+
+        # NIT receptor
+        nit_receptor = (self.partner_id.vat or '').replace('-', '').replace(' ', '')
+        if not nit_receptor:
+            nit_receptor = 'CF'
+
+        # Construir XML
+        nsmap = {None: ANULACION_NS}
+        root = etree.Element('GTAnulacionDocumento', nsmap=nsmap, Version="0.1")
+
+        sat = etree.SubElement(root, 'SAT')
+        anulacion_dte = etree.SubElement(sat, 'AnulacionDTE', ID="DatosCertificados")
+
+        datos_generales = etree.SubElement(anulacion_dte, 'DatosGenerales')
+        datos_generales.set('ID', 'DatosAnulacion')
+        datos_generales.set('NumeroDocumentoAAnular', fel_doc.uuid)
+        datos_generales.set('NITEmisor', nit_emisor)
+        datos_generales.set('IDReceptor', nit_receptor)
+        datos_generales.set('FechaEmisionDocumentoAnular', fecha_emision)
+        datos_generales.set('FechaHoraAnulacion', fecha_anulacion)
+        datos_generales.set('MotivoAnulacion', (reason or 'Anulación solicitada')[:255])
+
+        xml_string = etree.tostring(
+            root,
+            pretty_print=True,
+            encoding='unicode',
+            xml_declaration=True
+        )
+
+        logging.info("FEL Anulación: XML generado para factura %s, UUID: %s",
+                     self.name, fel_doc.uuid)
+
+        return xml_string
+
+    def _l10n_gt_edi_send_cancellation(self, xml_data):
+        """Envía XML de anulación a INFILE"""
+        self.ensure_one()
+
+        company = self.company_id.sudo()
+        sudo_root_company = company.parent_ids.filtered('partner_id.vat')[-1:] or company.root_id
+
+        # Demo mode
+        if sudo_root_company.l10n_gt_edi_service_provider == 'demo':
+            logging.info("FEL Anulación: Modo DEMO - simulando respuesta exitosa")
+            return {
+                'resultado': True,
+                'uuid': 'DEMO-CANCEL-' + datetime.now().strftime('%Y%m%d%H%M%S'),
+                'descripcion': 'Anulación exitosa en modo DEMO',
+            }
+
+        db_uuid = self.env['ir.config_parameter'].sudo().get_param('database.uuid')
+
+        try:
+            response = requests.post(
+                url="https://certificador.feel.com.gt/fel/procesounificado/transaccion/v2/xml",
+                headers={
+                    'UsuarioFirma': sudo_root_company.l10n_gt_edi_ws_prefix,
+                    'LlaveFirma': sudo_root_company.l10n_gt_edi_infile_token,
+                    'UsuarioApi': sudo_root_company.l10n_gt_edi_ws_prefix,
+                    'LlaveApi': sudo_root_company.l10n_gt_edi_infile_key,
+                    'identificador': f"ODOO_CANCEL_{db_uuid}_{self.id}_{datetime.now(timezone.utc):%Y%m%d%H%M%S}",
+                },
+                data=xml_data.encode('utf-8'),
+                timeout=60,
+            )
+            response.raise_for_status()
+            result = response.json()
+            logging.info("FEL Anulación: Respuesta de INFILE: %s", result)
+            return result
+        except JSONDecodeError as e:
+            logging.error("FEL Anulación: Error decodificando respuesta JSON: %s", e)
+            return {'errors': [f"Error en respuesta de INFILE: {str(e)}"]}
+        except requests.RequestException as e:
+            logging.error("FEL Anulación: Error de conexión: %s", e)
+            return {'errors': [f"Error de conexión con INFILE: {str(e)}"]}
+        except Exception as e:
+            logging.error("FEL Anulación: Error inesperado: %s", e)
+            return {'errors': [str(e)]}
+
+    def _l10n_gt_edi_cancel_invoice(self, reason):
+        """Proceso completo de anulación FEL"""
+        self.ensure_one()
+
+        logging.info("FEL Anulación: Iniciando anulación de factura %s", self.name)
+
+        # Construir XML
+        xml_data = self._l10n_gt_edi_build_cancellation_xml(reason)
+
+        # Enviar a INFILE
+        result = self._l10n_gt_edi_send_cancellation(xml_data)
+
+        # Obtener documento original
+        fel_doc = self.l10n_gt_edi_document_ids.filtered(
+            lambda d: d.state == 'invoice_sent'
+        ).sorted('id', reverse=True)[:1]
+
+        # Verificar resultado
+        has_errors = 'errors' in result
+        is_success = result.get('resultado', False)
+
+        if has_errors or not is_success:
+            # Error en anulación
+            if has_errors:
+                error_msgs = result.get('errors', [])
+            else:
+                error_msgs = result.get('descripcion_errores', [])
+                if isinstance(error_msgs, list) and error_msgs:
+                    error_msgs = [e.get('mensaje_error', str(e)) for e in error_msgs]
+                else:
+                    error_msgs = [result.get('descripcion', 'Error desconocido de INFILE')]
+
+            error_msg = ', '.join(error_msgs) if isinstance(error_msgs, list) else str(error_msgs)
+
+            # Crear documento de error
+            self.env['l10n_gt_edi.document'].create({
+                'invoice_id': self.id,
+                'state': 'invoice_cancelling_failed',
+                'message': error_msg,
+            })
+
+            self.message_post(body=_("Error al anular en INFILE: %s") % error_msg)
+            logging.error("FEL Anulación: Error - %s", error_msg)
+            raise UserError(_("Error al anular en INFILE: %s") % error_msg)
+        else:
+            # Anulación exitosa
+            cancellation_uuid = result.get('uuid', '')
+
+            fel_doc.write({
+                'state': 'invoice_cancelled',
+                'cancellation_uuid': cancellation_uuid,
+                'cancellation_date': fields.Datetime.now(),
+                'cancellation_reason': reason,
+            })
+
+            # Cancelar la factura en Odoo
+            self.button_cancel()
+
+            self.message_post(
+                body=_("Factura anulada exitosamente en INFILE. UUID Anulación: %s") % cancellation_uuid
+            )
+            logging.info("FEL Anulación: Éxito - Factura %s anulada, UUID: %s",
+                        self.name, cancellation_uuid)

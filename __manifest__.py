@@ -1,17 +1,16 @@
 {
     'name': 'Guatemala EDI - Adenda Personalizada',
-    'version': '19.0.1.0.0',
+    'version': '19.0.2.0.0',
     'category': 'Accounting/Localizations/EDI',
-    'summary': 'Agrega campos de referencia a la Adenda del XML FEL Guatemala',
+    'summary': 'Adenda personalizada y anulación FEL para Guatemala',
     'description': """
-        Este módulo extiende la funcionalidad de facturación electrónica de Guatemala
-        para incluir campos de referencia personalizados en la sección Adenda del XML.
+        Este módulo extiende la funcionalidad de facturación electrónica de Guatemala:
 
-        Campos incluidos:
-        - Complemento01: bl (BL/Contenedor)
-        - Complemento02: referencia_2 (Declaración)
-        - Complemento03: referencia_3 (Observaciones)
-        - Complemento04: mrdc_shipment_id.name o name (Embarque/Factura)
+        Funcionalidades:
+        - Adenda personalizada con Complemento03 (BL, DUCA, Embarque, Referencia)
+        - Datos de Receptor (CorreoReceptor, DireccionReceptor)
+        - Auto-llenado de invoice_series e invoice_number desde respuesta INFILE
+        - Anulación de facturas FEL directamente en INFILE
     """,
     'author': 'ADROC',
     'website': 'https://www.adroc.com.gt',
@@ -22,8 +21,11 @@
         'mrdc_shipment_base',
     ],
     'data': [
+        'security/ir.model.access.csv',
         'data/templates.xml',
         'data/server_actions.xml',
+        'wizards/l10n_gt_edi_cancel_wizard_views.xml',
+        'views/account_move_views.xml',
     ],
     'installable': True,
     'auto_install': False,
