@@ -4,6 +4,9 @@ from lxml import etree
 from odoo import models
 from odoo.tools import cleanup_xml_node
 
+DTE_NS = "{http://www.sat.gob.gt/dte/fel/0.2.0}"
+DTE_NS_URL = "http://www.sat.gob.gt/dte/fel/0.2.0"
+
 
 class AccountMove(models.Model):
     _inherit = 'account.move'
@@ -41,6 +44,80 @@ class AccountMove(models.Model):
             partes.append(f"REFERENCIA {self.referencia_3}")
 
         return ' '.join(partes)
+
+    def _l10n_gt_edi_modify_receptor(self, xml_string):
+        """
+        Modifica la sección Receptor del XML para agregar:
+        - CorreoReceptor como atributo
+        - DireccionReceptor con sus subelementos (Direccion, CodigoPostal, Municipio, Departamento, Pais)
+        """
+        self.ensure_one()
+        partner = self.commercial_partner_id
+
+        logging.info("=== RECEPTOR: Iniciando _l10n_gt_edi_modify_receptor ===")
+        logging.info("RECEPTOR: Partner: %s", partner.name)
+
+        # Parsear el XML
+        root = etree.fromstring(xml_string.encode('utf-8'))
+        nsmap = {'dte': DTE_NS_URL}
+
+        # Buscar el elemento Receptor
+        receptor = root.find('.//dte:Receptor', nsmap)
+        if receptor is None:
+            logging.warning("RECEPTOR: No se encontró elemento Receptor en el XML")
+            return xml_string
+
+        logging.info("RECEPTOR: Elemento Receptor encontrado")
+
+        # Agregar CorreoReceptor si el partner tiene email
+        if partner.email:
+            receptor.set('CorreoReceptor', partner.email)
+            logging.info("RECEPTOR: CorreoReceptor agregado: %s", partner.email)
+
+        # Verificar si ya existe DireccionReceptor
+        direccion_receptor = receptor.find('dte:DireccionReceptor', nsmap)
+
+        if direccion_receptor is None:
+            logging.info("RECEPTOR: Creando DireccionReceptor")
+            # Crear DireccionReceptor
+            direccion_receptor = etree.SubElement(receptor, DTE_NS + 'DireccionReceptor')
+
+            # Construir dirección completa
+            direccion_full = ''
+            if partner.street:
+                direccion_full = partner.street
+            else:
+                direccion_full = 'Ciudad'
+            if partner.street2:
+                direccion_full += ' ' + partner.street2
+
+            # Agregar subelementos
+            direccion_elem = etree.SubElement(direccion_receptor, DTE_NS + 'Direccion')
+            direccion_elem.text = direccion_full
+
+            codigo_postal_elem = etree.SubElement(direccion_receptor, DTE_NS + 'CodigoPostal')
+            codigo_postal_elem.text = partner.zip or '01001'
+
+            municipio_elem = etree.SubElement(direccion_receptor, DTE_NS + 'Municipio')
+            municipio_elem.text = partner.city or 'Guatemala'
+
+            departamento_elem = etree.SubElement(direccion_receptor, DTE_NS + 'Departamento')
+            departamento_elem.text = partner.state_id.name if partner.state_id else 'Guatemala'
+
+            pais_elem = etree.SubElement(direccion_receptor, DTE_NS + 'Pais')
+            pais_elem.text = partner.country_id.code or 'GT'
+
+            logging.info("RECEPTOR: DireccionReceptor creada - Direccion: %s, CP: %s, Municipio: %s, Depto: %s, Pais: %s",
+                        direccion_full, partner.zip or '01001', partner.city or 'Guatemala',
+                        partner.state_id.name if partner.state_id else 'Guatemala',
+                        partner.country_id.code or 'GT')
+        else:
+            logging.info("RECEPTOR: DireccionReceptor ya existe - no se modifica")
+
+        result_xml = etree.tostring(root, pretty_print=True, encoding='unicode')
+        logging.info("=== RECEPTOR: XML modificado exitosamente ===")
+
+        return result_xml
 
     def _l10n_gt_edi_modify_adenda(self, xml_string):
         """
@@ -131,6 +208,10 @@ class AccountMove(models.Model):
 
         xml_data = self.env['ir.qweb']._render('l10n_gt_edi.SAT', gt_values)
         xml_data = etree.tostring(cleanup_xml_node(xml_data, remove_blank_nodes=False), pretty_print=True, encoding='unicode')
+
+        # MODIFICACIÓN: Agregar datos de Receptor (CorreoReceptor, DireccionReceptor)
+        logging.info("RECEPTOR: Llamando a _l10n_gt_edi_modify_receptor")
+        xml_data = self._l10n_gt_edi_modify_receptor(xml_data)
 
         # MODIFICACIÓN: Agregar Adenda personalizada
         logging.info("ADENDA: Llamando a _l10n_gt_edi_modify_adenda")
