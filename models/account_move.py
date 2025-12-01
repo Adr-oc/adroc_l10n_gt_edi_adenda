@@ -73,12 +73,12 @@ class AccountMove(models.Model):
             for child in list(adenda):
                 adenda.remove(child)
         else:
-            # Crear nueva Adenda
+            # Crear nueva Adenda (con namespace dte:)
             adenda = etree.SubElement(sat_element, '{http://www.sat.gob.gt/dte/fel/0.2.0}Adenda')
 
-        # Agregar Complemento03
-        complemento_elem = etree.SubElement(adenda, '{http://www.sat.gob.gt/dte/fel/0.2.0}Complemento03')
-        complemento_elem.text = complemento03
+        # Agregar Complemento03 SIN namespace (así lo espera el SAT)
+        complemento_elem = etree.SubElement(adenda, 'Complemento03')
+        complemento_elem.text = complemento03 or ''
 
         return etree.tostring(root, pretty_print=True, encoding='unicode')
 
