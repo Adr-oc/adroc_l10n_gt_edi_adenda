@@ -1,0 +1,1 @@
+# adroc_l10n_gt_edi_adenda
