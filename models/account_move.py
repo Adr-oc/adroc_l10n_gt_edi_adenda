@@ -342,7 +342,7 @@ class AccountMove(models.Model):
         """Construye el XML de anulación según XSD GT_AnulacionDocumento-0.1.0"""
         self.ensure_one()
 
-        # Namespace para anulación (versión 0.1.0)
+        # Namespace para anulación (versión 0.1.0) - con prefijo dte:
         ANULACION_NS = "http://www.sat.gob.gt/dte/fel/0.1.0"
 
         # Obtener documento FEL original
@@ -369,14 +369,16 @@ class AccountMove(models.Model):
         if not nit_receptor:
             nit_receptor = 'CF'
 
-        # Construir XML
-        nsmap = {None: ANULACION_NS}
-        root = etree.Element('GTAnulacionDocumento', nsmap=nsmap, Version="0.1")
+        # Construir XML con prefijo dte:
+        nsmap = {'dte': ANULACION_NS}
+        DTE = "{%s}" % ANULACION_NS
 
-        sat = etree.SubElement(root, 'SAT')
-        anulacion_dte = etree.SubElement(sat, 'AnulacionDTE', ID="DatosCertificados")
+        root = etree.Element(DTE + 'GTAnulacionDocumento', nsmap=nsmap, Version="0.1")
 
-        datos_generales = etree.SubElement(anulacion_dte, 'DatosGenerales')
+        sat = etree.SubElement(root, DTE + 'SAT')
+        anulacion_dte = etree.SubElement(sat, DTE + 'AnulacionDTE', ID="DatosCertificados")
+
+        datos_generales = etree.SubElement(anulacion_dte, DTE + 'DatosGenerales')
         datos_generales.set('ID', 'DatosAnulacion')
         datos_generales.set('NumeroDocumentoAAnular', fel_doc.uuid)
         datos_generales.set('NITEmisor', nit_emisor)
@@ -393,6 +395,7 @@ class AccountMove(models.Model):
 
         logging.info("FEL Anulación: XML generado para factura %s, UUID: %s",
                      self.name, fel_doc.uuid)
+        logging.info("FEL Anulación: XML completo:\n%s", xml_string)
 
         return xml_string
 
