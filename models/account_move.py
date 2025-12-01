@@ -235,8 +235,68 @@ class AccountMove(models.Model):
             self._l10n_gt_edi_create_document_invoice_sending_failed({**result, 'xml': xml_data})
         else:
             self._l10n_gt_edi_create_document_invoice_sent(result)
+
+            # AUTO-LLENAR: Copiar series y serial_number a account.move
+            self._l10n_gt_edi_update_invoice_fel_fields(result)
+
             self.message_post(body=_("Successfully sent the XML to the SAT"), attachment_ids=self.l10n_gt_edi_attachment_id.ids)
             if sudo_root_company.l10n_gt_edi_service_provider == 'demo':
                 self.message_post(body=_("This document has been successfully generated in DEMO mode. "
                                          "It is considered as accepted and it won't be sent to the SAT."))
             self._cr.commit()
+
+    def _l10n_gt_edi_update_invoice_fel_fields(self, result):
+        """
+        Actualiza los campos FEL de la factura con la respuesta de INFILE.
+        - series → invoice_series, x_studio_serie
+        - serial_number → invoice_number, x_studio_nmero_de_dte
+        """
+        self.ensure_one()
+
+        series = result.get('series', '')
+        serial_number = result.get('serial_number', '')
+
+        vals = {}
+
+        # Campos de mrdc_shipment_base
+        if 'invoice_series' in self._fields:
+            vals['invoice_series'] = series
+        if 'invoice_number' in self._fields:
+            vals['invoice_number'] = serial_number
+
+        # Campos legacy de fel_gt/sam_gt
+        if 'x_studio_serie' in self._fields:
+            vals['x_studio_serie'] = series
+        if 'x_studio_nmero_de_dte' in self._fields:
+            vals['x_studio_nmero_de_dte'] = serial_number
+
+        if vals:
+            self.write(vals)
+            logging.info("FEL: Campos actualizados - Serie: %s, Número: %s", series, serial_number)
+
+    def action_sync_fel_fields_from_document(self):
+        """
+        Sincroniza invoice_series e invoice_number desde el documento FEL.
+        Se puede llamar manualmente o desde un cron/action.
+        Útil para actualización retroactiva de facturas existentes.
+        """
+        for move in self:
+            fel_doc = move.l10n_gt_edi_document_ids.filtered(
+                lambda d: d.state == 'invoice_sent'
+            ).sorted('id', reverse=True)[:1]
+
+            if fel_doc:
+                vals = {}
+                if 'invoice_series' in move._fields and fel_doc.series:
+                    vals['invoice_series'] = fel_doc.series
+                if 'invoice_number' in move._fields and fel_doc.serial_number:
+                    vals['invoice_number'] = fel_doc.serial_number
+                if 'x_studio_serie' in move._fields and fel_doc.series:
+                    vals['x_studio_serie'] = fel_doc.series
+                if 'x_studio_nmero_de_dte' in move._fields and fel_doc.serial_number:
+                    vals['x_studio_nmero_de_dte'] = fel_doc.serial_number
+
+                if vals:
+                    move.write(vals)
+                    logging.info("FEL Sync: Factura %s actualizada - Serie: %s, Número: %s",
+                                 move.name, fel_doc.series, fel_doc.serial_number)

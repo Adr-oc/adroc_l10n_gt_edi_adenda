@@ -23,6 +23,7 @@
     ],
     'data': [
         'data/templates.xml',
+        'data/server_actions.xml',
     ],
     'installable': True,
     'auto_install': False,
