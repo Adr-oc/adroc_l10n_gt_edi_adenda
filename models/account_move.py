@@ -1,7 +1,10 @@
+import logging
 from lxml import etree
 
 from odoo import models
 from odoo.tools import cleanup_xml_node
+
+_logger = logging.getLogger(__name__)
 
 
 class AccountMove(models.Model):
@@ -49,12 +52,21 @@ class AccountMove(models.Model):
         """
         self.ensure_one()
 
+        _logger.info("=== ADENDA: Iniciando _l10n_gt_edi_modify_adenda ===")
+        _logger.info("ADENDA: Factura %s, Company ID: %s, Company Name: %s",
+                     self.name, self.company_id.id, self.company_id.name)
+
         # Solo aplicar para estas empresas
         EMPRESAS_ADENDA = [6, 15, 16, 18]
         if self.company_id.id not in EMPRESAS_ADENDA:
+            _logger.info("ADENDA: Company ID %s NO está en lista %s - SALTANDO",
+                         self.company_id.id, EMPRESAS_ADENDA)
             return xml_string
 
+        _logger.info("ADENDA: Company ID %s SÍ está en lista - PROCESANDO", self.company_id.id)
+
         complemento03 = self._l10n_gt_edi_get_adenda_complemento03()
+        _logger.info("ADENDA: Complemento03 generado: '%s'", complemento03)
 
         # Parsear el XML
         root = etree.fromstring(xml_string.encode('utf-8'))
@@ -63,24 +75,33 @@ class AccountMove(models.Model):
         # Buscar el elemento SAT
         sat_element = root.find('.//dte:SAT', nsmap)
         if sat_element is None:
+            _logger.warning("ADENDA: No se encontró elemento SAT en el XML")
             return xml_string
+
+        _logger.info("ADENDA: Elemento SAT encontrado")
 
         # Buscar Adenda existente
         adenda = sat_element.find('dte:Adenda', nsmap)
 
         if adenda is not None:
+            _logger.info("ADENDA: Adenda existente encontrada - limpiando contenido")
             # Limpiar contenido existente
             for child in list(adenda):
                 adenda.remove(child)
         else:
+            _logger.info("ADENDA: No existe Adenda - creando nueva")
             # Crear nueva Adenda (con namespace dte:)
             adenda = etree.SubElement(sat_element, '{http://www.sat.gob.gt/dte/fel/0.2.0}Adenda')
 
         # Agregar Complemento03 SIN namespace (así lo espera el SAT)
         complemento_elem = etree.SubElement(adenda, 'Complemento03')
         complemento_elem.text = complemento03 or ''
+        _logger.info("ADENDA: Complemento03 agregado a Adenda")
 
-        return etree.tostring(root, pretty_print=True, encoding='unicode')
+        result_xml = etree.tostring(root, pretty_print=True, encoding='unicode')
+        _logger.info("=== ADENDA: XML modificado exitosamente ===")
+
+        return result_xml
 
     def _l10n_gt_edi_send_to_sat(self):
         """
@@ -88,6 +109,9 @@ class AccountMove(models.Model):
         """
         from odoo.addons.l10n_gt_edi.models.utils import _l10n_gt_edi_send_to_sat
         from odoo import _
+
+        _logger.info("=== ADENDA: MÉTODO _l10n_gt_edi_send_to_sat SOBRESCRITO EJECUTÁNDOSE ===")
+        _logger.info("ADENDA: Factura: %s, ID: %s", self.name, self.id)
 
         self.ensure_one()
         self.env['res.company']._with_locked_records(self)
