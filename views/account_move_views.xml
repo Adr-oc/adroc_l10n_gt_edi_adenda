@@ -18,4 +18,34 @@
             </xpath>
         </field>
     </record>
+
+    <!-- Reemplazar lista de documentos SAT para mostrar botón siempre -->
+    <record id="view_move_form_inherit_sat_list" model="ir.ui.view">
+        <field name="name">account.move.form.sat.list</field>
+        <field name="model">account.move</field>
+        <field name="inherit_id" ref="l10n_gt_edi.account_move_form_inherit_l10n_gt_edi"/>
+        <field name="priority">110</field>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='l10n_gt_edi_document_ids']/list" position="replace">
+                <list create="false" delete="false" edit="false" no_open="1"
+                      decoration-danger="state in ('invoice_sending_failed', 'invoice_cancelling_failed')"
+                      decoration-success="state == 'invoice_sent'"
+                      decoration-warning="state == 'invoice_cancelled'">
+                    <field name="message" column_invisible="1"/>
+                    <field name="attachment_id" column_invisible="1"/>
+                    <field name="datetime"/>
+                    <field name="state" widget="account_document_state"/>
+                    <field name="uuid"/>
+                    <field name="series" optional="hide"/>
+                    <field name="serial_number" optional="hide"/>
+                    <field name="cancellation_uuid" string="UUID Anulación" optional="hide"/>
+                    <button name="action_download_file"
+                            type="object"
+                            string="Ver XML"
+                            icon="fa-file-code-o"
+                            invisible="not attachment_id"/>
+                </list>
+            </xpath>
+        </field>
+    </record>
 </odoo>
