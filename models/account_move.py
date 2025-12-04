@@ -661,10 +661,10 @@ class AccountMove(models.Model):
                 nombre_exportador_elem.text = (self.company_id.name or exportador.name)[:70]
                 logging.info("EXPORTACIÓN: NombreExportador agregado: %s", nombre_exportador_elem.text)
 
-                # CodigoExportador - vacío
+                # CodigoExportador
                 codigo_exportador_elem = etree.SubElement(exportacion, CEX + 'CodigoExportador')
-                codigo_exportador_elem.text = ''
-                logging.info("EXPORTACIÓN: CodigoExportador agregado (vacío)")
+                codigo_exportador_elem.text = '-'
+                logging.info("EXPORTACIÓN: CodigoExportador agregado: -")
 
         # Actualizar OtraReferencia si se especificó otra_referencia_fel
         if self.otra_referencia_fel:
