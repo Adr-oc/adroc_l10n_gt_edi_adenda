@@ -19,6 +19,7 @@
         'sam_gt',
         'adroc_shipment_fixes',
         'mrdc_shipment_base',
+        'fel_infile',
     ],
     'data': [
         'security/ir.model.access.csv',

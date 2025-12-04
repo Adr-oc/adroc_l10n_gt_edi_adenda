@@ -17,6 +17,55 @@ DTE_NS_URL = "http://www.sat.gob.gt/dte/fel/0.2.0"
 class AccountMove(models.Model):
     _inherit = 'account.move'
 
+    # =========================================================================
+    # CAMPOS ADICIONALES PARA COMPLEMENTO DE EXPORTACIÓN
+    # =========================================================================
+    comprador_fel = fields.Many2one(
+        'res.partner',
+        string="Comprador FEL",
+        help="Comprador para facturas de exportación. Si no se especifica, se usa el consignatario.",
+    )
+    exportador_fel = fields.Many2one(
+        'res.partner',
+        string="Exportador FEL",
+        help="Exportador para facturas de exportación. Si no se especifica, se usa la compañía.",
+    )
+    otra_referencia_fel = fields.Char(
+        string="Otra Referencia FEL",
+        size=50,
+        help="Otra referencia para el complemento de exportación.",
+    )
+    is_export_invoice = fields.Boolean(
+        string="Es Factura de Exportación",
+        compute="_compute_is_export_invoice",
+        store=True,
+        help="Indica si es una factura de exportación basado en la posición fiscal.",
+    )
+
+    @api.depends('fiscal_position_id', 'country_code')
+    def _compute_is_export_invoice(self):
+        """
+        Determina si es factura de exportación basándose en la posición fiscal.
+        Busca posiciones fiscales que NO tengan país asignado (exportación/cliente extranjero).
+        """
+        for move in self:
+            # Es exportación si:
+            # 1. País de la compañía es GT
+            # 2. La posición fiscal NO tiene país asignado (Foreign/Extranjero)
+            #    O el nombre contiene "Foreign" o "Extranjero"
+            is_foreign_fp = False
+            if move.fiscal_position_id:
+                fp = move.fiscal_position_id
+                # Posiciones fiscales de exportación típicamente no tienen país
+                # o tienen nombre que indica cliente extranjero
+                is_foreign_fp = (
+                    not fp.country_id or
+                    'foreign' in (fp.name or '').lower() or
+                    'extranjero' in (fp.name or '').lower() or
+                    'exporta' in (fp.name or '').lower()
+                )
+            move.is_export_invoice = move.country_code == 'GT' and is_foreign_fp
+
     def _l10n_gt_edi_get_adenda_complemento03(self):
         """
         Construye el texto del Complemento03 para la Adenda.
@@ -218,6 +267,10 @@ class AccountMove(models.Model):
         # MODIFICACIÓN: Agregar datos de Receptor (CorreoReceptor, DireccionReceptor)
         logging.info("RECEPTOR: Llamando a _l10n_gt_edi_modify_receptor")
         xml_data = self._l10n_gt_edi_modify_receptor(xml_data)
+
+        # MODIFICACIÓN: Agregar campos adicionales al complemento de exportación
+        logging.info("EXPORTACIÓN: Llamando a _l10n_gt_edi_modify_exportacion")
+        xml_data = self._l10n_gt_edi_modify_exportacion(xml_data)
 
         # MODIFICACIÓN: Agregar Adenda personalizada
         logging.info("ADENDA: Llamando a _l10n_gt_edi_modify_adenda")
@@ -507,3 +560,127 @@ class AccountMove(models.Model):
             )
             logging.info("FEL Anulación: Éxito - Factura %s anulada, UUID: %s",
                         self.name, cancellation_uuid)
+
+    # =========================================================================
+    # COMPLEMENTO DE EXPORTACIÓN - CAMPOS ADICIONALES
+    # =========================================================================
+
+    def _l10n_gt_edi_modify_exportacion(self, xml_string):
+        """
+        Modifica el complemento de Exportación para agregar campos adicionales:
+        - NombreComprador
+        - DireccionComprador
+        - CodigoComprador
+        - NombreExportador
+        - CodigoExportador
+
+        Estos campos no están en el módulo original de Odoo l10n_gt_edi.
+        """
+        self.ensure_one()
+
+        # Solo aplica para facturas de exportación (basado en posición fiscal)
+        if not self.is_export_invoice:
+            return xml_string
+
+        logging.info("=== EXPORTACIÓN: Modificando complemento de exportación ===")
+
+        CEX_NS = "http://www.sat.gob.gt/face2/ComplementoExportaciones/0.1.0"
+        CEX = "{%s}" % CEX_NS
+
+        # Parsear el XML
+        root = etree.fromstring(xml_string.encode('utf-8'))
+
+        # Buscar el elemento Exportacion
+        exportacion = root.find('.//{%s}Exportacion' % CEX_NS)
+        if exportacion is None:
+            logging.warning("EXPORTACIÓN: No se encontró elemento Exportacion en el XML")
+            return xml_string
+
+        logging.info("EXPORTACIÓN: Elemento Exportacion encontrado")
+
+        # Obtener datos del comprador (usa comprador_fel o consignatario)
+        comprador = self.comprador_fel or self.l10n_gt_edi_consignatory_partner
+        if comprador:
+            # Construir dirección del comprador
+            direccion_comprador = self._l10n_gt_edi_build_partner_address(comprador)
+
+            # Buscar si ya existe NombreComprador (para no duplicar)
+            nombre_comprador_elem = exportacion.find(CEX + 'NombreComprador')
+            if nombre_comprador_elem is None:
+                # Insertar después de CodigoConsignatarioODestinatario
+                codigo_consig = exportacion.find(CEX + 'CodigoConsignatarioODestinatario')
+                if codigo_consig is not None:
+                    idx = list(exportacion).index(codigo_consig) + 1
+                else:
+                    idx = len(exportacion)
+
+                # NombreComprador
+                nombre_comprador_elem = etree.Element(CEX + 'NombreComprador')
+                nombre_comprador_elem.text = (comprador.name or '-')[:70]
+                exportacion.insert(idx, nombre_comprador_elem)
+                logging.info("EXPORTACIÓN: NombreComprador agregado: %s", comprador.name)
+
+                # DireccionComprador
+                direccion_comprador_elem = etree.Element(CEX + 'DireccionComprador')
+                direccion_comprador_elem.text = direccion_comprador[:70]
+                exportacion.insert(idx + 1, direccion_comprador_elem)
+                logging.info("EXPORTACIÓN: DireccionComprador agregado: %s", direccion_comprador)
+
+                # CodigoComprador - usa el NIT/DPI del comprador
+                otra_ref = exportacion.find(CEX + 'OtraReferencia')
+                if otra_ref is not None:
+                    idx_codigo = list(exportacion).index(otra_ref)
+                    codigo_comprador_elem = etree.Element(CEX + 'CodigoComprador')
+                    # Usar VAT (NIT/DPI) del comprador, limpiar guiones
+                    codigo_comprador = (comprador.vat or '').replace('-', '').strip() or '.'
+                    codigo_comprador_elem.text = codigo_comprador
+                    exportacion.insert(idx_codigo, codigo_comprador_elem)
+                    logging.info("EXPORTACIÓN: CodigoComprador agregado: %s", codigo_comprador_elem.text)
+
+        # Obtener datos del exportador (usa exportador_fel o la compañía)
+        exportador = self.exportador_fel or self.company_id.partner_id
+        if exportador:
+            # Buscar si ya existe NombreExportador
+            nombre_exportador_elem = exportacion.find(CEX + 'NombreExportador')
+            if nombre_exportador_elem is None:
+                # Insertar al final
+                nombre_exportador_elem = etree.SubElement(exportacion, CEX + 'NombreExportador')
+                nombre_exportador_elem.text = (exportador.name or self.company_id.name)[:70]
+                logging.info("EXPORTACIÓN: NombreExportador agregado: %s", nombre_exportador_elem.text)
+
+                # CodigoExportador
+                codigo_exportador_elem = etree.SubElement(exportacion, CEX + 'CodigoExportador')
+                codigo_exportador_elem.text = exportador.codigo if hasattr(exportador, 'codigo') and exportador.codigo else '-'
+                logging.info("EXPORTACIÓN: CodigoExportador agregado: %s", codigo_exportador_elem.text)
+
+        # Actualizar OtraReferencia si se especificó otra_referencia_fel
+        if self.otra_referencia_fel:
+            otra_ref = exportacion.find(CEX + 'OtraReferencia')
+            if otra_ref is not None:
+                otra_ref.text = self.otra_referencia_fel
+                logging.info("EXPORTACIÓN: OtraReferencia actualizado: %s", self.otra_referencia_fel)
+
+        result_xml = etree.tostring(root, pretty_print=True, encoding='unicode')
+        logging.info("=== EXPORTACIÓN: XML modificado exitosamente ===")
+
+        return result_xml
+
+    def _l10n_gt_edi_build_partner_address(self, partner):
+        """Construye la dirección completa de un partner para el complemento de exportación."""
+        partes = []
+        if partner.street:
+            partes.append(partner.street)
+        else:
+            partes.append('Ciudad')
+        if partner.street2:
+            partes.append(partner.street2)
+        if partner.city:
+            partes.append(partner.city)
+        if partner.state_id:
+            partes.append(partner.state_id.name)
+        if partner.zip:
+            partes.append(partner.zip)
+        if partner.country_id:
+            partes.append(partner.country_id.name)
+
+        return ' '.join(partes)

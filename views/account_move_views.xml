@@ -1,5 +1,35 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
+    <!-- ================================================================
+         CAMPOS DE EXPORTACIÓN FEL EN PESTAÑA "OTRA INFORMACIÓN"
+         ================================================================ -->
+    <record id="view_move_form_inherit_export_fields" model="ir.ui.view">
+        <field name="name">account.move.form.export.fields</field>
+        <field name="model">account.move</field>
+        <field name="inherit_id" ref="account.view_move_form"/>
+        <field name="priority">95</field>
+        <field name="arch" type="xml">
+            <!-- Agregar grupo de exportación FEL en pestaña Otra Información -->
+            <xpath expr="//page[@id='other_tab']//group[@id='other_tab_group']" position="after">
+                <field name="is_export_invoice" invisible="1"/>
+                <group string="Datos de Exportación FEL" name="export_fel_group"
+                       invisible="not is_export_invoice">
+                    <group>
+                        <field name="comprador_fel"
+                               context="{'show_address': 1}"
+                               options="{'always_reload': True}"/>
+                        <field name="exportador_fel"
+                               context="{'show_address': 1}"
+                               options="{'always_reload': True}"/>
+                    </group>
+                    <group>
+                        <field name="otra_referencia_fel"/>
+                    </group>
+                </group>
+            </xpath>
+        </field>
+    </record>
+
     <!-- Agregar botón "Anular FEL" en el formulario de factura -->
     <record id="view_move_form_inherit_cancel_fel" model="ir.ui.view">
         <field name="name">account.move.form.cancel.fel</field>
