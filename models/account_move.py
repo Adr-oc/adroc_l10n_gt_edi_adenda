@@ -598,8 +598,8 @@ class AccountMove(models.Model):
 
         logging.info("EXPORTACIÓN: Elemento Exportacion encontrado")
 
-        # Obtener datos del comprador (usa comprador_fel o consignatario)
-        comprador = self.comprador_fel or self.l10n_gt_edi_consignatory_partner
+        # Obtener datos del comprador (es el partner_id - a quien se emite la factura)
+        comprador = self.commercial_partner_id
         if comprador:
             # Construir dirección del comprador
             direccion_comprador = self._l10n_gt_edi_build_partner_address(comprador)
@@ -637,20 +637,21 @@ class AccountMove(models.Model):
                     exportacion.insert(idx_codigo, codigo_comprador_elem)
                     logging.info("EXPORTACIÓN: CodigoComprador agregado: %s", codigo_comprador_elem.text)
 
-        # Obtener datos del exportador (usa exportador_fel o la compañía)
-        exportador = self.exportador_fel or self.company_id.partner_id
+        # Obtener datos del exportador (es la compañía que emite la factura)
+        exportador = self.company_id.partner_id
         if exportador:
             # Buscar si ya existe NombreExportador
             nombre_exportador_elem = exportacion.find(CEX + 'NombreExportador')
             if nombre_exportador_elem is None:
                 # Insertar al final
                 nombre_exportador_elem = etree.SubElement(exportacion, CEX + 'NombreExportador')
-                nombre_exportador_elem.text = (exportador.name or self.company_id.name)[:70]
+                nombre_exportador_elem.text = (self.company_id.name or exportador.name)[:70]
                 logging.info("EXPORTACIÓN: NombreExportador agregado: %s", nombre_exportador_elem.text)
 
-                # CodigoExportador
+                # CodigoExportador - usa el NIT de la compañía
                 codigo_exportador_elem = etree.SubElement(exportacion, CEX + 'CodigoExportador')
-                codigo_exportador_elem.text = exportador.codigo if hasattr(exportador, 'codigo') and exportador.codigo else '-'
+                codigo_exportador = (exportador.vat or '').replace('-', '').strip() or '-'
+                codigo_exportador_elem.text = codigo_exportador
                 logging.info("EXPORTACIÓN: CodigoExportador agregado: %s", codigo_exportador_elem.text)
 
         # Actualizar OtraReferencia si se especificó otra_referencia_fel

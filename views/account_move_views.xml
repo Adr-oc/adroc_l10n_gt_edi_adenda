@@ -15,14 +15,6 @@
                 <group string="Datos de Exportación FEL" name="export_fel_group"
                        invisible="not is_export_invoice">
                     <group>
-                        <field name="comprador_fel"
-                               context="{'show_address': 1}"
-                               options="{'always_reload': True}"/>
-                        <field name="exportador_fel"
-                               context="{'show_address': 1}"
-                               options="{'always_reload': True}"/>
-                    </group>
-                    <group>
                         <field name="otra_referencia_fel"/>
                     </group>
                 </group>
