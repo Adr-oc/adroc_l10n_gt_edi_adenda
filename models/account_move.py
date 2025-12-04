@@ -66,6 +66,19 @@ class AccountMove(models.Model):
                 )
             move.is_export_invoice = move.country_code == 'GT' and is_foreign_fp
 
+    @api.depends('l10n_gt_edi_show_consignatory_partner', 'commercial_partner_id')
+    def _compute_l10n_gt_edi_consignatory_partner(self):
+        """
+        Sobrescribe para que el consignatario sea el partner (cliente) de la factura,
+        no la compañía como está en el módulo original.
+        """
+        for move in self:
+            if move.l10n_gt_edi_show_consignatory_partner:
+                # Usar el partner de la factura (cliente) como consignatario
+                move.l10n_gt_edi_consignatory_partner = move.commercial_partner_id
+            else:
+                move.l10n_gt_edi_consignatory_partner = False
+
     def _l10n_gt_edi_get_adenda_complemento03(self):
         """
         Construye el texto del Complemento03 para la Adenda.
@@ -648,11 +661,10 @@ class AccountMove(models.Model):
                 nombre_exportador_elem.text = (self.company_id.name or exportador.name)[:70]
                 logging.info("EXPORTACIÓN: NombreExportador agregado: %s", nombre_exportador_elem.text)
 
-                # CodigoExportador - usa el NIT de la compañía
+                # CodigoExportador - vacío
                 codigo_exportador_elem = etree.SubElement(exportacion, CEX + 'CodigoExportador')
-                codigo_exportador = (exportador.vat or '').replace('-', '').strip() or '-'
-                codigo_exportador_elem.text = codigo_exportador
-                logging.info("EXPORTACIÓN: CodigoExportador agregado: %s", codigo_exportador_elem.text)
+                codigo_exportador_elem.text = ''
+                logging.info("EXPORTACIÓN: CodigoExportador agregado (vacío)")
 
         # Actualizar OtraReferencia si se especificó otra_referencia_fel
         if self.otra_referencia_fel:
