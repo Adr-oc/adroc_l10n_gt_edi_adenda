@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <!-- Vista del wizard de confirmación FEL -->
+    <record id="l10n_gt_edi_confirm_wizard_form" model="ir.ui.view">
+        <field name="name">l10n_gt_edi.confirm.wizard.form</field>
+        <field name="model">l10n_gt_edi.confirm.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Confirmar Certificación FEL">
+                <group>
+                    <div class="alert alert-warning" role="alert" style="margin-bottom: 16px;">
+                        <h4 class="alert-heading">
+                            <i class="fa fa-exclamation-triangle"/> Advertencia - Certificación FEL
+                        </h4>
+                        <p>
+                            Al confirmar esta factura, se <strong>certificará automáticamente en FEL (INFILE)</strong>.
+                        </p>
+                        <p class="mb-0">
+                            Una vez certificada, <strong>no podrá modificarse</strong>. Solo podrá anularse a través del proceso de anulación FEL.
+                        </p>
+                    </div>
+                </group>
+
+                <group string="Facturas a Certificar">
+                    <field name="invoice_count" readonly="1"/>
+                    <field name="total_amount" readonly="1" widget="monetary"/>
+                    <field name="currency_id" invisible="1"/>
+                </group>
+
+                <group>
+                    <field name="invoice_names" readonly="1" widget="text" nolabel="1"
+                           style="font-family: monospace; background-color: #f8f9fa; padding: 10px; border-radius: 4px;"/>
+                </group>
+
+                <field name="move_ids" invisible="1"/>
+
+                <footer>
+                    <button name="action_confirm_with_fel"
+                            string="Confirmar y Certificar FEL"
+                            type="object"
+                            class="btn-primary"
+                            icon="fa-check"/>
+                    <button name="action_confirm_without_fel"
+                            string="Confirmar sin Certificar"
+                            type="object"
+                            class="btn-secondary"
+                            icon="fa-clock-o"
+                            title="La certificación se realizará al momento de enviar la factura"/>
+                    <button name="action_cancel"
+                            string="Cancelar"
+                            type="object"
+                            class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

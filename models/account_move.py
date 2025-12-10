@@ -13,9 +13,121 @@ from odoo.exceptions import UserError
 DTE_NS = "{http://www.sat.gob.gt/dte/fel/0.2.0}"
 DTE_NS_URL = "http://www.sat.gob.gt/dte/fel/0.2.0"
 
+# URL base de Infile para ver reportes
+INFILE_REPORT_URL = "https://report.feel.com.gt/ingfacereport/ingfacereport_documento"
+
 
 class AccountMove(models.Model):
     _inherit = 'account.move'
+
+    # =========================================================================
+    # CAMPOS PARA BOTÓN INFILE
+    # =========================================================================
+    l10n_gt_edi_uuid = fields.Char(
+        string="UUID FEL",
+        compute="_compute_l10n_gt_edi_uuid",
+        store=True,
+        help="UUID del documento FEL (incluye anulados)",
+    )
+    l10n_gt_edi_show_infile_button = fields.Boolean(
+        string="Mostrar botón Infile",
+        compute="_compute_l10n_gt_edi_uuid",
+        store=True,
+    )
+
+    @api.depends('l10n_gt_edi_document_ids', 'l10n_gt_edi_document_ids.state', 'l10n_gt_edi_document_ids.uuid')
+    def _compute_l10n_gt_edi_uuid(self):
+        """
+        Computa el UUID del documento FEL para mostrar el botón de Infile.
+        Incluye documentos anulados (invoice_cancelled) para que el botón
+        siempre esté visible si hay un UUID.
+        """
+        for move in self:
+            # Buscar documento FEL con UUID (enviado o anulado)
+            fel_doc = move.l10n_gt_edi_document_ids.filtered(
+                lambda d: d.uuid and d.state in ('invoice_sent', 'invoice_cancelled')
+            ).sorted('id', reverse=True)[:1]
+            move.l10n_gt_edi_uuid = fel_doc.uuid if fel_doc else ''
+            move.l10n_gt_edi_show_infile_button = bool(fel_doc.uuid) if fel_doc else False
+
+    def action_open_infile_report(self):
+        """
+        Abre el reporte de Infile en una nueva pestaña.
+        URL: https://report.feel.com.gt/ingfacereport/ingfacereport_documento?uuid=UUID
+        """
+        self.ensure_one()
+        if not self.l10n_gt_edi_uuid:
+            raise UserError(_("No se encontró UUID FEL para esta factura."))
+
+        return {
+            'type': 'ir.actions.act_url',
+            'url': f"{INFILE_REPORT_URL}?uuid={self.l10n_gt_edi_uuid}",
+            'target': 'new',
+        }
+
+    # =========================================================================
+    # CERTIFICACIÓN AL CONFIRMAR (en lugar de al enviar)
+    # =========================================================================
+
+    def _l10n_gt_edi_is_fel_applicable(self):
+        """Verifica si la factura aplica para certificación FEL"""
+        self.ensure_one()
+        return all([
+            self.country_code == 'GT',
+            not self.l10n_gt_edi_state,
+            self.l10n_gt_edi_doc_type,
+            self.move_type in ('out_invoice', 'out_refund'),  # Solo facturas de cliente
+        ])
+
+    def action_post(self):
+        """
+        Sobrescribe action_post para certificar FEL al confirmar.
+        Muestra wizard de advertencia antes de proceder.
+        """
+        # Filtrar facturas que aplican para FEL
+        fel_invoices = self.filtered(lambda m: m._l10n_gt_edi_is_fel_applicable())
+
+        if fel_invoices:
+            # Si hay facturas FEL, mostrar wizard de confirmación
+            return {
+                'name': _('Confirmar Certificación FEL'),
+                'type': 'ir.actions.act_window',
+                'res_model': 'l10n_gt_edi.confirm.wizard',
+                'view_mode': 'form',
+                'target': 'new',
+                'context': {
+                    'default_move_ids': self.ids,
+                    'active_model': 'account.move',
+                },
+            }
+
+        # Si no hay facturas FEL, confirmar normalmente
+        return super().action_post()
+
+    def action_post_with_fel(self):
+        """
+        Confirma la factura y certifica en FEL.
+        Se llama desde el wizard de confirmación.
+        """
+        # Primero confirmar todas las facturas normalmente
+        result = super(AccountMove, self).action_post()
+
+        # Luego certificar en FEL las que aplican
+        for move in self.filtered(lambda m: m._l10n_gt_edi_is_fel_applicable() or (
+            m.country_code == 'GT' and not m.l10n_gt_edi_state and m.l10n_gt_edi_doc_type
+        )):
+            # Re-verificar después del post
+            if move.state == 'posted' and not move.l10n_gt_edi_state:
+                move._l10n_gt_edi_try_send()
+
+        return result
+
+    def action_post_without_fel(self):
+        """
+        Confirma la factura sin certificar en FEL.
+        Se llama desde el wizard cuando el usuario decide no certificar.
+        """
+        return super(AccountMove, self).action_post()
 
     # =========================================================================
     # CAMPOS ADICIONALES PARA COMPLEMENTO DE EXPORTACIÓN
@@ -78,6 +190,40 @@ class AccountMove(models.Model):
                 move.l10n_gt_edi_consignatory_partner = move.commercial_partner_id
             else:
                 move.l10n_gt_edi_consignatory_partner = False
+
+    @api.depends('commercial_partner_id', 'journal_id', 'journal_id.l10n_gt_edi_phrase_ids',
+                 'journal_id.l10n_gt_edi_use_journal_phrases')
+    def _compute_l10n_gt_edi_phrase_ids(self):
+        """
+        Sobrescribe el compute de frases para priorizar las frases del journal.
+
+        Prioridad:
+        1. Si el journal tiene frases y está activo 'Usar Frases del Diario' → usar solo frases del journal
+        2. Si no → usar frases de compañía + partner (comportamiento original)
+        """
+        for move in self:
+            if move.country_code == 'GT' and move.commercial_partner_id:
+                # Verificar si el journal tiene frases configuradas y está activo
+                journal = move.journal_id
+                if (journal and
+                    journal.l10n_gt_edi_use_journal_phrases and
+                    journal.l10n_gt_edi_phrase_ids):
+                    # Usar SOLO las frases del journal (prioridad máxima)
+                    move.l10n_gt_edi_phrase_ids = journal.l10n_gt_edi_phrase_ids
+                    logging.info("FEL Frases: Usando frases del diario %s para factura %s",
+                                journal.name, move.name)
+                else:
+                    # Comportamiento original: compañía + partner
+                    if move.state == 'draft':
+                        move.l10n_gt_edi_phrase_ids = (
+                            move.l10n_gt_edi_phrase_ids +
+                            move.company_id.l10n_gt_edi_phrase_ids +
+                            move.commercial_partner_id.l10n_gt_edi_phrase_ids
+                        )
+                    else:
+                        move.l10n_gt_edi_phrase_ids = move.l10n_gt_edi_phrase_ids
+            else:
+                move.l10n_gt_edi_phrase_ids = False
 
     def _l10n_gt_edi_get_adenda_complemento03(self):
         """

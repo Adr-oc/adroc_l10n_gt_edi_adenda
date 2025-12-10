@@ -22,20 +22,35 @@
         </field>
     </record>
 
-    <!-- Agregar botón "Anular FEL" en el formulario de factura -->
-    <record id="view_move_form_inherit_cancel_fel" model="ir.ui.view">
-        <field name="name">account.move.form.cancel.fel</field>
+    <!-- Agregar botones "Anular FEL" y "Ver en Infile" en el formulario de factura -->
+    <record id="view_move_form_inherit_fel_buttons" model="ir.ui.view">
+        <field name="name">account.move.form.fel.buttons</field>
         <field name="model">account.move</field>
         <field name="inherit_id" ref="account.view_move_form"/>
         <field name="priority">100</field>
         <field name="arch" type="xml">
-            <!-- Agregar botón después del botón de enviar -->
+            <!-- Campo auxiliar para visibilidad -->
+            <xpath expr="//field[@name='state']" position="after">
+                <field name="l10n_gt_edi_uuid" invisible="1"/>
+                <field name="l10n_gt_edi_show_infile_button" invisible="1"/>
+            </xpath>
+
+            <!-- Agregar botones después del botón de confirmar -->
             <xpath expr="//button[@name='action_post']" position="after">
+                <!-- Botón Anular FEL -->
                 <button name="action_open_cancel_fel_wizard"
                         string="Anular FEL"
                         type="object"
                         class="btn-secondary"
                         invisible="l10n_gt_edi_state != 'invoice_sent' or state != 'posted'"
+                        groups="account.group_account_invoice"/>
+                <!-- Botón Ver en Infile (siempre visible si hay UUID) -->
+                <button name="action_open_infile_report"
+                        string="Ver en Infile"
+                        type="object"
+                        class="btn-secondary"
+                        icon="fa-external-link"
+                        invisible="not l10n_gt_edi_show_infile_button"
                         groups="account.group_account_invoice"/>
             </xpath>
         </field>
