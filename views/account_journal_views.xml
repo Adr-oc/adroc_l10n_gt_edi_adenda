@@ -10,7 +10,7 @@
             <!-- Agregar grupo de frases FEL en journals de venta -->
             <xpath expr="//page[@name='advanced_settings']" position="inside">
                 <group string="Configuración FEL Guatemala" name="fel_gt_settings"
-                       invisible="type != 'sale' or company_id.country_id.code != 'GT'">
+                       invisible="type != 'sale' or not company_id or not company_id.country_id or company_id.country_id.code != 'GT'">
                     <group>
                         <field name="l10n_gt_edi_use_journal_phrases"/>
                     </group>
