@@ -4,6 +4,16 @@ from odoo import fields, models, api
 class AccountJournal(models.Model):
     _inherit = 'account.journal'
 
+    # Fix: partner_id fue definido incorrectamente como Char en invoice_gt
+    # Debe ser Many2one para compatibilidad con mail.thread
+    partner_id = fields.Many2one(
+        'res.partner',
+        string="Partner",
+        related='company_id.partner_id',
+        store=True,
+        readonly=True,
+    )
+
     l10n_gt_edi_phrase_ids = fields.Many2many(
         comodel_name='l10n_gt_edi.phrase',
         relation='account_journal_l10n_gt_edi_phrase_rel',
