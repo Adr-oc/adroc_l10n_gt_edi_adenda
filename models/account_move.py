@@ -79,16 +79,30 @@ class AccountMove(models.Model):
             self.move_type in ('out_invoice', 'out_refund'),  # Solo facturas de cliente
         ])
 
+    def _l10n_gt_edi_should_auto_certify(self):
+        """Verifica si el journal está configurado para certificar FEL automáticamente"""
+        self.ensure_one()
+        return (
+            self._l10n_gt_edi_is_fel_applicable() and
+            self.journal_id and
+            self.journal_id.l10n_gt_edi_auto_certify
+        )
+
     def action_post(self):
         """
         Sobrescribe action_post para certificar FEL al confirmar.
-        Muestra wizard de advertencia antes de proceder.
+        Solo muestra wizard si el journal tiene 'Certificar FEL al Confirmar' activo.
+        Si viene del wizard de fel_infile (skip_fel_wizard=True), no abre otro wizard.
         """
-        # Filtrar facturas que aplican para FEL
-        fel_invoices = self.filtered(lambda m: m._l10n_gt_edi_is_fel_applicable())
+        # Si viene del wizard de fel_infile, no abrir otro wizard
+        if self.env.context.get('skip_fel_wizard'):
+            return super().action_post()
 
-        if fel_invoices:
-            # Si hay facturas FEL, mostrar wizard de confirmación
+        # Filtrar facturas que deben certificar automáticamente
+        fel_auto_invoices = self.filtered(lambda m: m._l10n_gt_edi_should_auto_certify())
+
+        if fel_auto_invoices:
+            # Si hay facturas con auto-certificación FEL, mostrar wizard
             return {
                 'name': _('Confirmar Certificación FEL'),
                 'type': 'ir.actions.act_window',
@@ -101,7 +115,7 @@ class AccountMove(models.Model):
                 },
             }
 
-        # Si no hay facturas FEL, confirmar normalmente
+        # Si no hay facturas con auto-certificación, confirmar normalmente
         return super().action_post()
 
     def action_post_with_fel(self):
@@ -112,9 +126,10 @@ class AccountMove(models.Model):
         # Primero confirmar todas las facturas normalmente
         result = super(AccountMove, self).action_post()
 
-        # Luego certificar en FEL las que aplican
-        for move in self.filtered(lambda m: m._l10n_gt_edi_is_fel_applicable() or (
+        # Luego certificar en FEL las que tienen auto-certificación activa
+        for move in self.filtered(lambda m: m._l10n_gt_edi_should_auto_certify() or (
             m.country_code == 'GT' and not m.l10n_gt_edi_state and m.l10n_gt_edi_doc_type
+            and m.journal_id and m.journal_id.l10n_gt_edi_auto_certify
         )):
             # Re-verificar después del post
             if move.state == 'posted' and not move.l10n_gt_edi_state:

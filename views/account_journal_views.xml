@@ -10,19 +10,24 @@
             <!-- Agregar grupo de frases FEL en journals de venta -->
             <xpath expr="//page[@name='advanced_settings']" position="inside">
                 <group string="Configuración FEL Guatemala" name="fel_gt_settings"
-                       invisible="type != 'sale' or not company_id or not company_id.country_id or company_id.country_id.code != 'GT'">
+                       invisible="type != 'sale'">
                     <group>
+                        <field name="l10n_gt_edi_auto_certify"/>
                         <field name="l10n_gt_edi_use_journal_phrases"/>
                     </group>
                     <group invisible="not l10n_gt_edi_use_journal_phrases">
                         <field name="l10n_gt_edi_phrase_ids" widget="many2many_tags"
                                placeholder="Seleccione las frases FEL..."/>
                     </group>
+                    <div class="alert alert-warning" role="alert"
+                         invisible="not l10n_gt_edi_auto_certify">
+                        <i class="fa fa-exclamation-triangle"/> Las facturas de este diario se
+                        <strong>certificarán automáticamente en FEL</strong> al confirmar.
+                    </div>
                     <div class="alert alert-info" role="alert"
                          invisible="not l10n_gt_edi_use_journal_phrases">
                         <strong>Nota:</strong> Las frases configuradas aquí tendrán
-                        <strong>prioridad</strong> sobre las frases de la compañía y del cliente
-                        para todas las facturas emitidas desde este diario.
+                        <strong>prioridad</strong> sobre las frases de la compañía y del cliente.
                     </div>
                 </group>
             </xpath>

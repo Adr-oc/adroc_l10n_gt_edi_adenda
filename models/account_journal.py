@@ -29,3 +29,9 @@ class AccountJournal(models.Model):
         help="Si está activo, las facturas de este diario usarán las frases "
              "configuradas aquí en lugar de las de la compañía/cliente.",
     )
+    l10n_gt_edi_auto_certify = fields.Boolean(
+        string="Certificar FEL al Confirmar",
+        default=False,
+        help="Si está activo, las facturas de este diario se certificarán "
+             "automáticamente en FEL al momento de confirmar.",
+    )
