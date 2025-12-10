@@ -16,7 +16,6 @@
                     </group>
                     <group invisible="not l10n_gt_edi_use_journal_phrases">
                         <field name="l10n_gt_edi_phrase_ids" widget="many2many_tags"
-                               options="{'color_field': 'color'}"
                                placeholder="Seleccione las frases FEL..."/>
                     </group>
                     <div class="alert alert-info" role="alert"
