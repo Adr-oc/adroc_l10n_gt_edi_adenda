@@ -407,6 +407,83 @@ class AccountMove(models.Model):
 
         return result_xml
 
+    def _l10n_gt_edi_add_reference_values(self, gt_values: dict):
+        """
+        Sobrescribe para buscar datos de referencia también en campos legacy.
+        Esto permite crear NC de facturas certificadas con el módulo antiguo fel_gt.
+
+        Campos legacy:
+        - x_studio_serie: Serie FEL
+        - x_studio_nmero_de_dte: Número FEL
+        - firma_fel: UUID
+        """
+        self.ensure_one()
+
+        # Determinar el documento de referencia
+        reference_move = self.reversed_entry_id if self.l10n_gt_edi_doc_type == 'NCRE' else self.debit_origin_id
+
+        if not reference_move:
+            raise UserError(_("No se encontró el documento de referencia para la NC/ND."))
+
+        # Intentar obtener datos del documento FEL nativo
+        original_document = reference_move.l10n_gt_edi_document_ids.filtered(
+            lambda d: d.state == 'invoice_sent'
+        ).sorted('id', reverse=True)[:1]
+
+        if original_document:
+            # Usar datos del documento FEL nativo
+            uuid = original_document.uuid
+            serial_number = original_document.serial_number
+            series = original_document.series
+            fecha_emision = original_document.datetime
+            logging.info("NC/ND: Usando datos de l10n_gt_edi_document - UUID: %s, Serie: %s, Número: %s",
+                        uuid, series, serial_number)
+        else:
+            # Buscar en campos legacy (fel_gt/fel_infile)
+            uuid = getattr(reference_move, 'firma_fel', '') or ''
+            serial_number = getattr(reference_move, 'x_studio_nmero_de_dte', '') or ''
+            series = getattr(reference_move, 'x_studio_serie', '') or ''
+            fecha_emision = reference_move.invoice_date
+
+            # Si sigue sin encontrar, intentar con otros nombres de campos
+            if not uuid:
+                uuid = getattr(reference_move, 'uuid_fel', '') or getattr(reference_move, 'uuid', '') or ''
+            if not serial_number:
+                serial_number = getattr(reference_move, 'numero_fel', '') or getattr(reference_move, 'invoice_number', '') or ''
+            if not series:
+                series = getattr(reference_move, 'serie_fel', '') or getattr(reference_move, 'invoice_series', '') or ''
+
+            logging.info("NC/ND: Usando datos legacy - UUID: %s, Serie: %s, Número: %s",
+                        uuid, series, serial_number)
+
+        # Validar que tenemos los datos necesarios
+        if not uuid or not serial_number or not series:
+            raise UserError(_(
+                "No se encontraron los datos FEL del documento original.\n\n"
+                "Datos encontrados:\n"
+                "- UUID: %s\n"
+                "- Serie: %s\n"
+                "- Número: %s\n\n"
+                "Por favor verifique que la factura original tenga los campos FEL correctamente llenados."
+            ) % (uuid or 'NO ENCONTRADO', series or 'NO ENCONTRADO', serial_number or 'NO ENCONTRADO'))
+
+        # Formatear fecha
+        if hasattr(fecha_emision, 'astimezone'):
+            fecha_str = fecha_emision.astimezone(ZoneInfo("America/Guatemala")).strftime("%Y-%m-%d")
+        else:
+            fecha_str = fecha_emision.strftime("%Y-%m-%d") if fecha_emision else ''
+
+        gt_values.update({
+            'referencias_motivo_ajuste': self.ref,
+            'referencias_fecha_emision_documento_origen': fecha_str,
+            'referencias_numero_autorizacion_documento_origen': uuid,
+            'referencias_numero_documento_origen': serial_number,
+            'referencias_serie_documento_origen': series,
+        })
+
+        logging.info("NC/ND: Referencias agregadas - Motivo: %s, Fecha: %s, UUID: %s, Serie: %s, Número: %s",
+                    self.ref, fecha_str, uuid, series, serial_number)
+
     def _l10n_gt_edi_try_send(self):
         """
         Sobrescribe el método de envío para modificar la Adenda antes de enviar.
