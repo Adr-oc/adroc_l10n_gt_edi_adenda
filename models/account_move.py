@@ -66,6 +66,64 @@ class AccountMove(models.Model):
         }
 
     # =========================================================================
+    # VERIFICACIÓN DE CERTIFICACIÓN FEL (módulo nuevo y legacy)
+    # =========================================================================
+
+    def _l10n_gt_edi_is_certified(self):
+        """
+        Verifica si la factura fue certificada en FEL.
+        Busca tanto en el módulo nuevo (l10n_gt_edi) como en campos legacy (fel_gt).
+
+        Returns:
+            bool: True si la factura fue certificada en FEL
+        """
+        self.ensure_one()
+
+        # Verificar módulo nuevo (l10n_gt_edi)
+        if self.l10n_gt_edi_state == 'invoice_sent':
+            return True
+
+        # Verificar campos legacy (fel_gt/fel_infile)
+        uuid = getattr(self, 'firma_fel', '') or getattr(self, 'uuid_fel', '') or ''
+        serial_number = getattr(self, 'x_studio_nmero_de_dte', '') or getattr(self, 'numero_fel', '') or ''
+        series = getattr(self, 'x_studio_serie', '') or getattr(self, 'serie_fel', '') or ''
+
+        # Si tiene UUID y número, consideramos que fue certificada
+        if uuid and serial_number:
+            return True
+
+        return False
+
+    def _l10n_gt_edi_get_alerts(self):
+        """
+        Sobrescribe para permitir NC/ND de facturas certificadas con módulo legacy.
+        """
+        # Llamar al método original
+        alerts = super()._l10n_gt_edi_get_alerts()
+
+        # Corregir validación de NC
+        if self.l10n_gt_edi_doc_type == 'NCRE':
+            if (self.reversed_entry_id and
+                'l10n_gt_edi_invalid_ncre_entry' in alerts and
+                self.reversed_entry_id._l10n_gt_edi_is_certified()):
+                # La factura original SÍ fue certificada (con módulo legacy)
+                del alerts['l10n_gt_edi_invalid_ncre_entry']
+                logging.info("NC: Factura original %s certificada con módulo legacy - validación OK",
+                            self.reversed_entry_id.name)
+
+        # Corregir validación de ND
+        if self.l10n_gt_edi_doc_type == 'NDEB':
+            if (self.debit_origin_id and
+                'l10n_gt_edi_invalid_ndeb_entry' in alerts and
+                self.debit_origin_id._l10n_gt_edi_is_certified()):
+                # La factura original SÍ fue certificada (con módulo legacy)
+                del alerts['l10n_gt_edi_invalid_ndeb_entry']
+                logging.info("ND: Factura original %s certificada con módulo legacy - validación OK",
+                            self.debit_origin_id.name)
+
+        return alerts
+
+    # =========================================================================
     # CERTIFICACIÓN AL CONFIRMAR (en lugar de al enviar)
     # =========================================================================
 
